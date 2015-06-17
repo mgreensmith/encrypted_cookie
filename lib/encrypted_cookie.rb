@@ -19,7 +19,8 @@ module Rack
     #       :domain => 'foo.com',
     #       :path => '/',
     #       :expire_after => 2592000
-    #       :time_to_live => 600
+    #       :time_to_live => 600,
+    #       :idempotent_expiry => false
     #
     #     All parameters are optional except :secret.
     #
@@ -31,6 +32,10 @@ module Rack
     #     Note that you shouldn't trust the expire_after parameter in the cookie
     #     for session expiry as that can be altered by the recipient. Instead,
     #     use time_to_live which is server side check.
+    #
+    #     Setting itempotent_expiry will block updation of time_to_live on each
+    #     request, forcing the session to expire at time_to_live seconds after
+    #     creation, regardless of user activity.
     class EncryptedCookie
 
       EXPIRES = '_encrypted_cookie_expires_'
@@ -43,7 +48,8 @@ module Rack
         @default_options = {:domain => nil,
           :path => "/",
           :time_to_live => 1800,
-          :expire_after => nil}.merge(options)
+          :expire_after => nil,
+          :idempotent_expiry => false }.merge(options)
         @encryptor = Encryptor.new(@secret)
       end
 
@@ -55,8 +61,8 @@ module Rack
 
       private
 
-      def remove_expiration(session_data)
-        expires = session_data.delete(EXPIRES)
+      def remove_expiration(session_data, options)
+        expires = options[:idempotent_expiry] ? session_data[EXPIRES] : session_data.delete(EXPIRES)
         if expires and expires < Time.now
           session_data.clear
         end
@@ -69,7 +75,7 @@ module Rack
         session_data = request.cookies[@key]
         session_data = @encryptor.decrypt(session_data)
         session_data = Marshal.load(session_data)
-        remove_expiration(session_data)
+        remove_expiration(session_data, env["rack.session.options"])
 
         env["rack.session"] = session_data
       rescue
